@@ -1,8 +1,6 @@
 {
   "connector_type": "fiz_operations",
   "connector_name": "stripe",
-  "business_country": "US",
-  "business_label": "default",
   "connector_account_details": {
     "auth_type": "BodyKey",
     "api_key": "api-key",

@@ -10,6 +10,8 @@ class State {
     this.data["connectorAuthFilePath"] = Cypress.env(
       "CONNECTOR_AUTH_FILE_PATH"
     );
+    this.data["apiKey"] = Cypress.env("API_KEY");
+    this.data["publishableKey"] = Cypress.env("PUBLISHABLE_KEY");
   }
 
   set(key, val) {
