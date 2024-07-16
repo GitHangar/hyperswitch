@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_INCREMENTAL: 1
+  CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CONNECTORS: stripe
   RUST_BACKTRACE: short
@@ -21,7 +21,7 @@ env:
 jobs:
   runner:
     name: Run Cypress tests
-    runs-on: ubuntu-latest
+    runs-on: hyperswitch-runners
 
     services:
       redis:
@@ -53,7 +53,7 @@ jobs:
         if: ${{ env.SKIP_STEP }}
         run: echo 'Skipping tests for PRs from forks'
 
-      - name: Repository checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Download Encrypted TOML from S3 and Decrypt
@@ -68,7 +68,6 @@ jobs:
           S3_SOURCE_FILE_NAME: "f64157fe-a8f7-43a8-a268-b17e9a8c305f.json.gpg"
         shell: bash
         run: |
-        
           mkdir -p ".github/secrets" ".github/test"
 
           aws s3 cp "${CONNECTOR_CREDS_S3_BUCKET_URI}/${S3_SOURCE_FILE_NAME}" ".github/secrets/${DESTINATION_FILE_NAME}"
@@ -88,35 +87,52 @@ jobs:
           LOCAL_ADMIN_API_KEY=$(yq '.secrets.admin_api_key' ${TOML_PATH})
           echo "CYPRESS_ADMINAPIKEY=${LOCAL_ADMIN_API_KEY}" >> $GITHUB_ENV
       
+      - name: Install mold linker
+        uses: rui314/setup-mold@v1
+        if: ${{ runner.os == 'Linux' && !env.SKIP_STEP }}
+        with:
+          make-default: true
+
       - name: Install Rust
         if: ${{ !env.SKIP_STEP }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable 2 weeks ago
+          components: clippy
 
-      - name: Cache Rust Dependencies
+      - name: Install sccache
         if: ${{ !env.SKIP_STEP }}
-        uses: Swatinem/rust-cache@v2.7.0
+        uses: taiki-e/install-action@v2.41.10
+        with:
+          tool: sccache
+          checksum: true
+
+      - name: Install cargo-nextest
+        if: ${{ !env.SKIP_STEP }}
+        uses: taiki-e/install-action@v2.41.10
+        with:
+          tool: cargo-nextest
+          checksum: true
 
       - name: Install Diesel CLI
         if: ${{ !env.SKIP_STEP }}
-        uses: baptiste0928/cargo-install@v2.2.0
+        uses: baptiste0928/cargo-install@v3.1.1
         with:
           crate: diesel_cli
           features: postgres
-          args: "--no-default-features"
+          args: --no-default-features
+
+      - name: Install Just
+        uses: baptiste0928/cargo-install@v3.1.1
+        with:
+          crate: just
 
       - name: Diesel migration run
         if: ${{ !env.SKIP_STEP }}
         shell: bash
         env:
           DATABASE_URL: postgres://db_user:db_pass@localhost:5432/hyperswitch_db
-        run: make migrate locked-schema=yes
-
-      - name: Install Cypress
-        run: |
-          cd cypress-tests
-          npm install
+        run: just migrate run --locked-schema
 
       - name: Build project
         if: ${{ !env.SKIP_STEP }}
