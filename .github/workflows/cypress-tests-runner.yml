@@ -50,14 +50,14 @@ jobs:
     steps:
       - name: Skip tests for PRs from forks
         shell: bash
-        if: ${{ env.SKIP_STEP }}
+        if: ${{ !env.SKIP_STEP }}
         run: echo 'Skipping tests for PRs from forks'
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Download Encrypted TOML from S3 and Decrypt
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CONNECTOR_CREDS_AWS_ACCESS_KEY_ID }}
           AWS_REGION: ${{ secrets.CONNECTOR_CREDS_AWS_REGION }}
@@ -74,13 +74,13 @@ jobs:
           gpg --quiet --batch --yes --decrypt --passphrase="${CONNECTOR_AUTH_PASSPHRASE}" --output ".github/test/creds.json" ".github/secrets/${DESTINATION_FILE_NAME}"
 
       - name: Set paths in env
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         shell: bash
         run: |
           echo "CYPRESS_CONNECTOR_AUTH_FILE_PATH=${{ github.workspace }}/.github/test/creds.json" >> $GITHUB_ENV
 
       - name: Fetch keys
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         env:
           TOML_PATH: "./config/development.toml"
         run: |
@@ -89,33 +89,33 @@ jobs:
       
       - name: Install mold linker
         uses: rui314/setup-mold@v1
-        if: ${{ runner.os == 'Linux' && !env.SKIP_STEP }}
+        if: ${{ runner.os == 'Linux' && env.SKIP_STEP }}
         with:
           make-default: true
 
       - name: Install Rust
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable 2 weeks ago
           components: clippy
 
       - name: Install sccache
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         uses: taiki-e/install-action@v2.41.10
         with:
           tool: sccache
           checksum: true
 
       - name: Install cargo-nextest
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         uses: taiki-e/install-action@v2.41.10
         with:
           tool: cargo-nextest
           checksum: true
 
       - name: Install Diesel CLI
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         uses: baptiste0928/cargo-install@v3.1.1
         with:
           crate: diesel_cli
@@ -128,18 +128,18 @@ jobs:
           crate: just
 
       - name: Diesel migration run
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         shell: bash
         env:
           DATABASE_URL: postgres://db_user:db_pass@localhost:5432/hyperswitch_db
         run: just migrate run --locked-schema
 
       - name: Build project
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         run: cargo build --package router --bin router
 
       - name: Setup Local Server
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         run: |
           # Start the server in the background
           target/debug/router &
@@ -159,7 +159,7 @@ jobs:
           done
 
       - name: Run Cypress tests
-        if: ${{ !env.SKIP_STEP }}
+        if: ${{ env.SKIP_STEP }}
         env:
           CYPRESS_BASEURL: "http://localhost:8080"
         shell: bash
