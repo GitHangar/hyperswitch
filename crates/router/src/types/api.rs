@@ -455,6 +455,7 @@ impl ConnectorData {
                 enums::Connector::Placetopay => {
                     Ok(ConnectorEnum::Old(Box::new(&connector::Placetopay)))
                 }
+                enums::Connector::Plaid => Ok(ConnectorEnum::New(Box::new(&connector::Plaid))),
                 enums::Connector::Powertranz => {
                     Ok(ConnectorEnum::Old(Box::new(&connector::Powertranz)))
                 }

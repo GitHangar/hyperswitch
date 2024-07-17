@@ -46,6 +46,7 @@ pub mod payone;
 pub mod paypal;
 pub mod payu;
 pub mod placetopay;
+pub mod plaid;
 pub mod powertranz;
 pub mod prophetpay;
 pub mod rapyd;
@@ -85,4 +86,5 @@ pub use self::{
     signifyd::Signifyd, square::Square, stax::Stax, stripe::Stripe, threedsecureio::Threedsecureio,
     trustpay::Trustpay, tsys::Tsys, volt::Volt, wise::Wise, worldline::Worldline,
     worldpay::Worldpay, zen::Zen, zsl::Zsl,
+plaid::Plaid,
 };

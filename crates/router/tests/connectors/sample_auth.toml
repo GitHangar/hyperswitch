@@ -246,3 +246,7 @@ api_key="API Key"
 key1 = "Merchant id"
 api_secret = "Razorpay Id"
 key2 = "Razorpay Secret"
+
+
+[plaid]
+api_key="API Key"
