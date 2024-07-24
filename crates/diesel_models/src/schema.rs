@@ -733,6 +733,10 @@ diesel::table! {
         #[max_length = 32]
         org_id -> Varchar,
         org_name -> Nullable<Text>,
+        organization_details -> Nullable<Jsonb>,
+        metadata -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+        modified_at -> Timestamp,
     }
 }
 
@@ -934,7 +938,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use crate::enums::diesel_exports::*;
 
-    payment_methods (id) {
+    payment_methods (payment_method_id) {
         id -> Int4,
         #[max_length = 64]
         customer_id -> Varchar,

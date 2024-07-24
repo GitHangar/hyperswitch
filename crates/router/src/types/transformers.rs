@@ -255,6 +255,7 @@ impl ForeignTryFrom<api_enums::Connector> for common_enums::RoutableConnectors {
             }
             api_enums::Connector::Helcim => Self::Helcim,
             api_enums::Connector::Iatapay => Self::Iatapay,
+            api_enums::Connector::Itaubank => Self::Itaubank,
             api_enums::Connector::Klarna => Self::Klarna,
             api_enums::Connector::Mifinity => Self::Mifinity,
             api_enums::Connector::Mollie => Self::Mollie,
@@ -296,6 +297,7 @@ impl ForeignTryFrom<api_enums::Connector> for common_enums::RoutableConnectors {
             api_enums::Connector::Trustpay => Self::Trustpay,
             api_enums::Connector::Tsys => Self::Tsys,
             api_enums::Connector::Volt => Self::Volt,
+            // api_enums::Connector::Wellsfargo => Self::Wellsfargo,
             api_enums::Connector::Wise => Self::Wise,
             api_enums::Connector::Worldline => Self::Worldline,
             api_enums::Connector::Worldpay => Self::Worldpay,
@@ -1279,6 +1281,26 @@ impl ForeignFrom<api_models::organization::OrganizationNew>
         Self {
             org_id: item.org_id,
             org_name: item.org_name,
+            organization_details: None,
+            metadata: None,
+            created_at: common_utils::date_time::now(),
+            modified_at: common_utils::date_time::now(),
+        }
+    }
+}
+
+impl ForeignFrom<api_models::organization::OrganizationRequest>
+    for diesel_models::organization::OrganizationNew
+{
+    fn foreign_from(item: api_models::organization::OrganizationRequest) -> Self {
+        let org_new = api_models::organization::OrganizationNew::new(None);
+        Self {
+            org_id: org_new.org_id,
+            org_name: item.organization_name,
+            organization_details: item.organization_details,
+            metadata: item.metadata,
+            created_at: common_utils::date_time::now(),
+            modified_at: common_utils::date_time::now(),
         }
     }
 }

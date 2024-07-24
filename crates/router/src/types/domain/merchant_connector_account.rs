@@ -1,5 +1,5 @@
 use common_utils::{
-    crypto::{Encryptable, GcmAes256},
+    crypto::Encryptable,
     date_time,
     encryption::Encryption,
     errors::{CustomResult, ValidationError},
@@ -12,12 +12,12 @@ use masking::{PeekInterface, Secret};
 
 use super::{
     behaviour,
-    types::{self, AsyncLift, TypeEncryption},
+    types::{decrypt, decrypt_optional, AsyncLift},
 };
 #[derive(Clone, Debug)]
 pub struct MerchantConnectorAccount {
     pub id: Option<i32>,
-    pub merchant_id: String,
+    pub merchant_id: common_utils::id_type::MerchantId,
     pub connector_name: String,
     pub connector_account_details: Encryptable<Secret<serde_json::Value>>,
     pub test_mode: Option<bool>,
@@ -45,7 +45,6 @@ pub struct MerchantConnectorAccount {
 #[derive(Debug)]
 pub enum MerchantConnectorAccountUpdate {
     Update {
-        merchant_id: Option<String>,
         connector_type: Option<enums::ConnectorType>,
         connector_name: Option<String>,
         connector_account_details: Option<Encryptable<Secret<serde_json::Value>>>,
@@ -110,19 +109,18 @@ impl behaviour::Conversion for MerchantConnectorAccount {
         state: &KeyManagerState,
         other: Self::DstType,
         key: &Secret<Vec<u8>>,
-        _key_store_ref_id: String,
+        _key_manager_identifier: Identifier,
     ) -> CustomResult<Self, ValidationError> {
         let identifier = Identifier::Merchant(other.merchant_id.clone());
         Ok(Self {
             id: Some(other.id),
             merchant_id: other.merchant_id,
             connector_name: other.connector_name,
-            connector_account_details: Encryptable::decrypt_via_api(
+            connector_account_details: decrypt(
                 state,
                 other.connector_account_details,
                 identifier.clone(),
                 key.peek(),
-                GcmAes256,
             )
             .await
             .change_context(ValidationError::InvalidValue {
@@ -149,14 +147,14 @@ impl behaviour::Conversion for MerchantConnectorAccount {
             status: other.status,
             connector_wallets_details: other
                 .connector_wallets_details
-                .async_lift(|inner| types::decrypt(state, inner, identifier.clone(), key.peek()))
+                .async_lift(|inner| decrypt_optional(state, inner, identifier.clone(), key.peek()))
                 .await
                 .change_context(ValidationError::InvalidValue {
                     message: "Failed while decrypting connector wallets details".to_string(),
                 })?,
             additional_merchant_data: if let Some(data) = other.additional_merchant_data {
                 Some(
-                    Encryptable::decrypt(data, key.peek(), GcmAes256)
+                    decrypt(state, data, identifier, key.peek())
                         .await
                         .change_context(ValidationError::InvalidValue {
                             message: "Failed while decrypting additional_merchant_data".to_string(),
@@ -203,7 +201,6 @@ impl From<MerchantConnectorAccountUpdate> for MerchantConnectorAccountUpdateInte
     fn from(merchant_connector_account_update: MerchantConnectorAccountUpdate) -> Self {
         match merchant_connector_account_update {
             MerchantConnectorAccountUpdate::Update {
-                merchant_id,
                 connector_type,
                 connector_name,
                 connector_account_details,
@@ -220,7 +217,6 @@ impl From<MerchantConnectorAccountUpdate> for MerchantConnectorAccountUpdateInte
                 status,
                 connector_wallets_details,
             } => Self {
-                merchant_id,
                 connector_type,
                 connector_name,
                 connector_account_details: connector_account_details.map(Encryption::from),
@@ -243,7 +239,6 @@ impl From<MerchantConnectorAccountUpdate> for MerchantConnectorAccountUpdateInte
                 connector_wallets_details,
             } => Self {
                 connector_wallets_details: Some(Encryption::from(connector_wallets_details)),
-                merchant_id: None,
                 connector_type: None,
                 connector_name: None,
                 connector_account_details: None,
