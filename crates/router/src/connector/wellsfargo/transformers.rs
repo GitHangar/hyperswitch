@@ -1,8 +1,7 @@
 use api_models::payments;
 use base64::Engine;
 use common_enums::FutureUsage;
-use common_utils::{ext_traits::ValueExt, pii, types::SemanticVersion};
-use error_stack::ResultExt;
+use common_utils::{pii, types::SemanticVersion};
 use masking::{ExposeInterface, PeekInterface, Secret};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,12 +9,10 @@ use serde_json::Value;
 use crate::{
     connector::utils::{
         self, AddressDetailsData, ApplePayDecrypt, CardData, PaymentsAuthorizeRequestData,
-        PaymentsCompleteAuthorizeRequestData, PaymentsPreProcessingData,
         PaymentsSetupMandateRequestData, PaymentsSyncRequestData, RecurringMandateData, RouterData,
     },
     consts,
     core::errors,
-    services,
     types::{
         self,
         api::{self, enums as api_enums},
@@ -528,16 +525,6 @@ impl From<&WellsfargoRouterData<&types::PaymentsAuthorizeRouterData>>
     }
 }
 
-impl From<&WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>>
-    for ClientReferenceInformation
-{
-    fn from(item: &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>) -> Self {
-        Self {
-            code: Some(item.router_data.connector_request_reference_id.clone()),
-        }
-    }
-}
-
 impl
     TryFrom<(
         &WellsfargoRouterData<&types::PaymentsAuthorizeRouterData>,
@@ -788,65 +775,6 @@ fn get_commerce_indicator_for_external_authentication(
 
 impl
     From<(
-        &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-        Option<PaymentSolution>,
-        &WellsfargoConsumerAuthValidateResponse,
-    )> for ProcessingInformation
-{
-    fn from(
-        (item, solution, three_ds_data): (
-            &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-            Option<PaymentSolution>,
-            &WellsfargoConsumerAuthValidateResponse,
-        ),
-    ) -> Self {
-        let (action_list, action_token_types, authorization_options) = if item
-            .router_data
-            .request
-            .setup_future_usage
-            .map_or(false, |future_usage| {
-                matches!(future_usage, FutureUsage::OffSession)
-            })
-        //TODO check for customer acceptance also
-        {
-            (
-                Some(vec![WellsfargoActionsList::TokenCreate]),
-                Some(vec![
-                    WellsfargoActionsTokenType::PaymentInstrument,
-                    WellsfargoActionsTokenType::Customer,
-                ]),
-                Some(WellsfargoAuthorizationOptions {
-                    initiator: Some(WellsfargoPaymentInitiator {
-                        initiator_type: Some(WellsfargoPaymentInitiatorTypes::Customer),
-                        credential_stored_on_file: Some(true),
-                        stored_credential_used: None,
-                    }),
-                    merchant_intitiated_transaction: None,
-                }),
-            )
-        } else {
-            (None, None, None)
-        };
-        Self {
-            capture: Some(matches!(
-                item.router_data.request.capture_method,
-                Some(enums::CaptureMethod::Automatic) | None
-            )),
-            payment_solution: solution.map(String::from),
-            action_list,
-            action_token_types,
-            authorization_options,
-            capture_options: None,
-            commerce_indicator: three_ds_data
-                .indicator
-                .to_owned()
-                .unwrap_or(String::from("internet")),
-        }
-    }
-}
-
-impl
-    From<(
         &WellsfargoRouterData<&types::PaymentsAuthorizeRouterData>,
         Option<BillTo>,
     )> for OrderInformationWithBill
@@ -863,28 +791,6 @@ impl
                 currency: item.router_data.request.currency,
             },
             bill_to,
-        }
-    }
-}
-
-impl
-    From<(
-        &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-        BillTo,
-    )> for OrderInformationWithBill
-{
-    fn from(
-        (item, bill_to): (
-            &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-            BillTo,
-        ),
-    ) -> Self {
-        Self {
-            amount_details: Amount {
-                total_amount: item.amount.to_owned(),
-                currency: item.router_data.request.currency,
-            },
-            bill_to: Some(bill_to),
         }
     }
 }
@@ -907,6 +813,7 @@ fn build_bill_to(
     email: pii::Email,
 ) -> Result<BillTo, error_stack::Report<errors::ConnectorError>> {
     let phone_number = get_phone_number(address_details);
+    println!(" ADESSS {:?}", address_details.clone());
     let default_address = BillTo {
         first_name: None,
         last_name: None,
@@ -918,7 +825,7 @@ fn build_bill_to(
         email: email.clone(),
         phone_number: phone_number.clone(),
     };
-    Ok(address_details
+    let ad = Ok(address_details
         .and_then(|addr| {
             addr.address.as_ref().map(|addr| BillTo {
                 first_name: addr.first_name.clone(),
@@ -932,7 +839,8 @@ fn build_bill_to(
                 phone_number: phone_number.clone(),
             })
         })
-        .unwrap_or(default_address))
+        .unwrap_or(default_address));
+    ad
 }
 
 impl ForeignFrom<Value> for Vec<MerchantDefinedInformation> {
@@ -1021,87 +929,6 @@ impl
                     veres_enrolled: Some("Y".to_string()),
                 }
             });
-
-        Ok(Self {
-            processing_information,
-            payment_information,
-            order_information,
-            client_reference_information,
-            consumer_authentication_information,
-            merchant_defined_information,
-        })
-    }
-}
-
-impl
-    TryFrom<(
-        &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-        domain::Card,
-    )> for WellsfargoPaymentsRequest
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        (item, ccard): (
-            &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-            domain::Card,
-        ),
-    ) -> Result<Self, Self::Error> {
-        let email = item.router_data.request.get_email()?;
-        let bill_to = build_bill_to(item.router_data.get_optional_billing(), email)?;
-        let order_information = OrderInformationWithBill::from((item, bill_to));
-
-        let card_issuer = ccard.get_card_issuer();
-        let card_type = match card_issuer {
-            Ok(issuer) => Some(String::from(issuer)),
-            Err(_) => None,
-        };
-
-        let payment_information = PaymentInformation::Cards(Box::new(CardPaymentInformation {
-            card: Card {
-                number: ccard.card_number,
-                expiration_month: ccard.card_exp_month,
-                expiration_year: ccard.card_exp_year,
-                security_code: Some(ccard.card_cvc),
-                card_type,
-            },
-        }));
-        let client_reference_information = ClientReferenceInformation::from(item);
-
-        let three_ds_info: WellsfargoThreeDSMetadata = item
-            .router_data
-            .request
-            .connector_meta
-            .clone()
-            .ok_or(errors::ConnectorError::MissingRequiredField {
-                field_name: "connector_meta",
-            })?
-            .parse_value("WellsfargoThreeDSMetadata")
-            .change_context(errors::ConnectorError::InvalidConnectorConfig {
-                config: "metadata",
-            })?;
-
-        let processing_information =
-            ProcessingInformation::from((item, None, &three_ds_info.three_ds_data));
-
-        let consumer_authentication_information = Some(WellsfargoConsumerAuthInformation {
-            ucaf_collection_indicator: three_ds_info.three_ds_data.ucaf_collection_indicator,
-            cavv: three_ds_info.three_ds_data.cavv,
-            ucaf_authentication_data: three_ds_info.three_ds_data.ucaf_authentication_data,
-            xid: three_ds_info.three_ds_data.xid,
-            directory_server_transaction_id: three_ds_info
-                .three_ds_data
-                .directory_server_transaction_id,
-            specification_version: three_ds_info.three_ds_data.specification_version,
-            pa_specification_version: None,
-            veres_enrolled: None,
-        });
-
-        let merchant_defined_information = item
-            .router_data
-            .request
-            .metadata
-            .clone()
-            .map(Vec::<MerchantDefinedInformation>::foreign_from);
 
         Ok(Self {
             processing_information,
@@ -1511,67 +1338,6 @@ impl
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WellsfargoAuthSetupRequest {
-    payment_information: PaymentInformation,
-    client_reference_information: ClientReferenceInformation,
-}
-
-impl TryFrom<&WellsfargoRouterData<&types::PaymentsAuthorizeRouterData>>
-    for WellsfargoAuthSetupRequest
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: &WellsfargoRouterData<&types::PaymentsAuthorizeRouterData>,
-    ) -> Result<Self, Self::Error> {
-        match item.router_data.request.payment_method_data.clone() {
-            domain::PaymentMethodData::Card(ccard) => {
-                let card_issuer = ccard.get_card_issuer();
-                let card_type = match card_issuer {
-                    Ok(issuer) => Some(String::from(issuer)),
-                    Err(_) => None,
-                };
-                let payment_information =
-                    PaymentInformation::Cards(Box::new(CardPaymentInformation {
-                        card: Card {
-                            number: ccard.card_number,
-                            expiration_month: ccard.card_exp_month,
-                            expiration_year: ccard.card_exp_year,
-                            security_code: Some(ccard.card_cvc),
-                            card_type,
-                        },
-                    }));
-                let client_reference_information = ClientReferenceInformation::from(item);
-                Ok(Self {
-                    payment_information,
-                    client_reference_information,
-                })
-            }
-            domain::PaymentMethodData::Wallet(_)
-            | domain::PaymentMethodData::CardRedirect(_)
-            | domain::PaymentMethodData::PayLater(_)
-            | domain::PaymentMethodData::BankRedirect(_)
-            | domain::PaymentMethodData::BankDebit(_)
-            | domain::PaymentMethodData::BankTransfer(_)
-            | domain::PaymentMethodData::Crypto(_)
-            | domain::PaymentMethodData::MandatePayment
-            | domain::PaymentMethodData::Reward
-            | domain::PaymentMethodData::RealTimePayment(_)
-            | domain::PaymentMethodData::Upi(_)
-            | domain::PaymentMethodData::Voucher(_)
-            | domain::PaymentMethodData::OpenBanking(_)
-            | domain::PaymentMethodData::GiftCard(_)
-            | domain::PaymentMethodData::CardToken(_) => {
-                Err(errors::ConnectorError::NotImplemented(
-                    utils::get_unimplemented_payment_method_error_message("Wellsfargo"),
-                )
-                .into())
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WellsfargoPaymentsCaptureRequest {
     processing_information: ProcessingInformation,
     order_information: OrderInformationWithBill,
@@ -1849,29 +1615,6 @@ pub struct WellsfargoErrorInformationResponse {
     error_information: WellsfargoErrorInformation,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoConsumerAuthInformationResponse {
-    access_token: String,
-    device_data_collection_url: String,
-    reference_id: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClientAuthSetupInfoResponse {
-    id: String,
-    client_reference_information: ClientReferenceInformation,
-    consumer_authentication_information: WellsfargoConsumerAuthInformationResponse,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum WellsfargoAuthSetupResponse {
-    ClientAuthSetupInfo(Box<ClientAuthSetupInfoResponse>),
-    ErrorInformation(Box<WellsfargoErrorInformationResponse>),
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WellsfargoPaymentsIncrementalAuthorizationResponse {
@@ -2073,536 +1816,6 @@ impl
             api::Authorize,
             WellsfargoPaymentsResponse,
             types::PaymentsAuthorizeData,
-            types::PaymentsResponseData,
-        >,
-    ) -> Result<Self, Self::Error> {
-        let status = enums::AttemptStatus::foreign_from((
-            item.response
-                .status
-                .clone()
-                .unwrap_or(WellsfargoPaymentStatus::StatusNotReceived),
-            item.data.request.is_auto_capture()?,
-        ));
-        let response = get_payment_response((&item.response, status, item.http_code));
-        let connector_response = item
-            .response
-            .processor_information
-            .as_ref()
-            .map(types::AdditionalPaymentMethodConnectorResponse::from)
-            .map(types::ConnectorResponseData::with_additional_payment_method_data);
-
-        Ok(Self {
-            status,
-            response,
-            connector_response,
-            ..item.data
-        })
-    }
-}
-
-impl<F>
-    TryFrom<
-        types::ResponseRouterData<
-            F,
-            WellsfargoAuthSetupResponse,
-            types::PaymentsAuthorizeData,
-            types::PaymentsResponseData,
-        >,
-    > for types::RouterData<F, types::PaymentsAuthorizeData, types::PaymentsResponseData>
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: types::ResponseRouterData<
-            F,
-            WellsfargoAuthSetupResponse,
-            types::PaymentsAuthorizeData,
-            types::PaymentsResponseData,
-        >,
-    ) -> Result<Self, Self::Error> {
-        match item.response {
-            WellsfargoAuthSetupResponse::ClientAuthSetupInfo(info_response) => Ok(Self {
-                status: enums::AttemptStatus::AuthenticationPending,
-                response: Ok(types::PaymentsResponseData::TransactionResponse {
-                    resource_id: types::ResponseId::NoResponseId,
-                    redirection_data: Some(services::RedirectForm::CybersourceAuthSetup {
-                        access_token: info_response
-                            .consumer_authentication_information
-                            .access_token,
-                        ddc_url: info_response
-                            .consumer_authentication_information
-                            .device_data_collection_url,
-                        reference_id: info_response
-                            .consumer_authentication_information
-                            .reference_id,
-                    }),
-                    mandate_reference: None,
-                    connector_metadata: None,
-                    network_txn_id: None,
-                    connector_response_reference_id: Some(
-                        info_response
-                            .client_reference_information
-                            .code
-                            .unwrap_or(info_response.id.clone()),
-                    ),
-                    incremental_authorization_allowed: None,
-                    charge_id: None,
-                }),
-                ..item.data
-            }),
-            WellsfargoAuthSetupResponse::ErrorInformation(error_response) => {
-                let detailed_error_info =
-                    error_response
-                        .error_information
-                        .details
-                        .to_owned()
-                        .map(|details| {
-                            details
-                                .iter()
-                                .map(|details| format!("{} : {}", details.field, details.reason))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        });
-
-                let reason = get_error_reason(
-                    error_response.error_information.message,
-                    detailed_error_info,
-                    None,
-                );
-                let error_message = error_response.error_information.reason;
-                Ok(Self {
-                    response: Err(types::ErrorResponse {
-                        code: error_message
-                            .clone()
-                            .unwrap_or(consts::NO_ERROR_CODE.to_string()),
-                        message: error_message.unwrap_or(consts::NO_ERROR_MESSAGE.to_string()),
-                        reason,
-                        status_code: item.http_code,
-                        attempt_status: None,
-                        connector_transaction_id: Some(error_response.id.clone()),
-                    }),
-                    status: enums::AttemptStatus::AuthenticationFailed,
-                    ..item.data
-                })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoConsumerAuthInformationRequest {
-    return_url: String,
-    reference_id: String,
-}
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoAuthEnrollmentRequest {
-    payment_information: PaymentInformation,
-    client_reference_information: ClientReferenceInformation,
-    consumer_authentication_information: WellsfargoConsumerAuthInformationRequest,
-    order_information: OrderInformationWithBill,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct WellsfargoRedirectionAuthResponse {
-    pub transaction_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoConsumerAuthInformationValidateRequest {
-    authentication_transaction_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoAuthValidateRequest {
-    payment_information: PaymentInformation,
-    client_reference_information: ClientReferenceInformation,
-    consumer_authentication_information: WellsfargoConsumerAuthInformationValidateRequest,
-    order_information: OrderInformation,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum WellsfargoPreProcessingRequest {
-    AuthEnrollment(Box<WellsfargoAuthEnrollmentRequest>),
-    AuthValidate(Box<WellsfargoAuthValidateRequest>),
-}
-
-impl TryFrom<&WellsfargoRouterData<&types::PaymentsPreProcessingRouterData>>
-    for WellsfargoPreProcessingRequest
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: &WellsfargoRouterData<&types::PaymentsPreProcessingRouterData>,
-    ) -> Result<Self, Self::Error> {
-        let client_reference_information = ClientReferenceInformation {
-            code: Some(item.router_data.connector_request_reference_id.clone()),
-        };
-        let payment_method_data = item.router_data.request.payment_method_data.clone().ok_or(
-            errors::ConnectorError::MissingConnectorRedirectionPayload {
-                field_name: "payment_method_data",
-            },
-        )?;
-        let payment_information = match payment_method_data {
-            domain::PaymentMethodData::Card(ccard) => {
-                let card_issuer = ccard.get_card_issuer();
-                let card_type = match card_issuer {
-                    Ok(issuer) => Some(String::from(issuer)),
-                    Err(_) => None,
-                };
-                Ok(PaymentInformation::Cards(Box::new(
-                    CardPaymentInformation {
-                        card: Card {
-                            number: ccard.card_number,
-                            expiration_month: ccard.card_exp_month,
-                            expiration_year: ccard.card_exp_year,
-                            security_code: Some(ccard.card_cvc),
-                            card_type,
-                        },
-                    },
-                )))
-            }
-            domain::PaymentMethodData::Wallet(_)
-            | domain::PaymentMethodData::CardRedirect(_)
-            | domain::PaymentMethodData::PayLater(_)
-            | domain::PaymentMethodData::BankRedirect(_)
-            | domain::PaymentMethodData::BankDebit(_)
-            | domain::PaymentMethodData::BankTransfer(_)
-            | domain::PaymentMethodData::Crypto(_)
-            | domain::PaymentMethodData::MandatePayment
-            | domain::PaymentMethodData::Reward
-            | domain::PaymentMethodData::RealTimePayment(_)
-            | domain::PaymentMethodData::Upi(_)
-            | domain::PaymentMethodData::Voucher(_)
-            | domain::PaymentMethodData::OpenBanking(_)
-            | domain::PaymentMethodData::GiftCard(_)
-            | domain::PaymentMethodData::CardToken(_) => {
-                Err(errors::ConnectorError::NotImplemented(
-                    utils::get_unimplemented_payment_method_error_message("Wellsfargo"),
-                ))
-            }
-        }?;
-
-        let redirect_response = item.router_data.request.redirect_response.clone().ok_or(
-            errors::ConnectorError::MissingRequiredField {
-                field_name: "redirect_response",
-            },
-        )?;
-
-        let amount_details = Amount {
-            total_amount: item.amount.clone(),
-            currency: item.router_data.request.currency.ok_or(
-                errors::ConnectorError::MissingRequiredField {
-                    field_name: "currency",
-                },
-            )?,
-        };
-
-        match redirect_response.params {
-            Some(param) if !param.clone().peek().is_empty() => {
-                let reference_id = param
-                    .clone()
-                    .peek()
-                    .split_once('=')
-                    .ok_or(errors::ConnectorError::MissingConnectorRedirectionPayload {
-                        field_name: "request.redirect_response.params.reference_id",
-                    })?
-                    .1
-                    .to_string();
-                let email = item.router_data.request.get_email()?;
-                let bill_to = build_bill_to(item.router_data.get_optional_billing(), email)?;
-                let order_information = OrderInformationWithBill {
-                    amount_details,
-                    bill_to: Some(bill_to),
-                };
-                Ok(Self::AuthEnrollment(Box::new(
-                    WellsfargoAuthEnrollmentRequest {
-                        payment_information,
-                        client_reference_information,
-                        consumer_authentication_information:
-                            WellsfargoConsumerAuthInformationRequest {
-                                return_url: item
-                                    .router_data
-                                    .request
-                                    .get_complete_authorize_url()?,
-                                reference_id,
-                            },
-                        order_information,
-                    },
-                )))
-            }
-            Some(_) | None => {
-                let redirect_payload: WellsfargoRedirectionAuthResponse = redirect_response
-                    .payload
-                    .ok_or(errors::ConnectorError::MissingConnectorRedirectionPayload {
-                        field_name: "request.redirect_response.payload",
-                    })?
-                    .peek()
-                    .clone()
-                    .parse_value("WellsfargoRedirectionAuthResponse")
-                    .change_context(errors::ConnectorError::ResponseDeserializationFailed)?;
-                let order_information = OrderInformation { amount_details };
-                Ok(Self::AuthValidate(Box::new(
-                    WellsfargoAuthValidateRequest {
-                        payment_information,
-                        client_reference_information,
-                        consumer_authentication_information:
-                            WellsfargoConsumerAuthInformationValidateRequest {
-                                authentication_transaction_id: redirect_payload.transaction_id,
-                            },
-                        order_information,
-                    },
-                )))
-            }
-        }
-    }
-}
-
-impl TryFrom<&WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>>
-    for WellsfargoPaymentsRequest
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: &WellsfargoRouterData<&types::PaymentsCompleteAuthorizeRouterData>,
-    ) -> Result<Self, Self::Error> {
-        let payment_method_data = item.router_data.request.payment_method_data.clone().ok_or(
-            errors::ConnectorError::MissingRequiredField {
-                field_name: "payment_method_data",
-            },
-        )?;
-        match payment_method_data {
-            domain::PaymentMethodData::Card(ccard) => Self::try_from((item, ccard)),
-            domain::PaymentMethodData::Wallet(_)
-            | domain::PaymentMethodData::CardRedirect(_)
-            | domain::PaymentMethodData::PayLater(_)
-            | domain::PaymentMethodData::BankRedirect(_)
-            | domain::PaymentMethodData::BankDebit(_)
-            | domain::PaymentMethodData::BankTransfer(_)
-            | domain::PaymentMethodData::Crypto(_)
-            | domain::PaymentMethodData::MandatePayment
-            | domain::PaymentMethodData::Reward
-            | domain::PaymentMethodData::RealTimePayment(_)
-            | domain::PaymentMethodData::Upi(_)
-            | domain::PaymentMethodData::Voucher(_)
-            | domain::PaymentMethodData::OpenBanking(_)
-            | domain::PaymentMethodData::GiftCard(_)
-            | domain::PaymentMethodData::CardToken(_) => {
-                Err(errors::ConnectorError::NotImplemented(
-                    utils::get_unimplemented_payment_method_error_message("Wellsfargo"),
-                )
-                .into())
-            }
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum WellsfargoAuthEnrollmentStatus {
-    PendingAuthentication,
-    AuthenticationSuccessful,
-    AuthenticationFailed,
-}
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoConsumerAuthValidateResponse {
-    ucaf_collection_indicator: Option<String>,
-    cavv: Option<String>,
-    ucaf_authentication_data: Option<Secret<String>>,
-    xid: Option<String>,
-    specification_version: Option<String>,
-    directory_server_transaction_id: Option<Secret<String>>,
-    indicator: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct WellsfargoThreeDSMetadata {
-    three_ds_data: WellsfargoConsumerAuthValidateResponse,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WellsfargoConsumerAuthInformationEnrollmentResponse {
-    access_token: Option<Secret<String>>,
-    step_up_url: Option<String>,
-    //Added to segregate the three_ds_data in a separate struct
-    #[serde(flatten)]
-    validate_response: WellsfargoConsumerAuthValidateResponse,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClientAuthCheckInfoResponse {
-    id: String,
-    client_reference_information: ClientReferenceInformation,
-    consumer_authentication_information: WellsfargoConsumerAuthInformationEnrollmentResponse,
-    status: WellsfargoAuthEnrollmentStatus,
-    error_information: Option<WellsfargoErrorInformation>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum WellsfargoPreProcessingResponse {
-    ClientAuthCheckInfo(Box<ClientAuthCheckInfoResponse>),
-    ErrorInformation(Box<WellsfargoErrorInformationResponse>),
-}
-
-impl From<WellsfargoAuthEnrollmentStatus> for enums::AttemptStatus {
-    fn from(item: WellsfargoAuthEnrollmentStatus) -> Self {
-        match item {
-            WellsfargoAuthEnrollmentStatus::PendingAuthentication => Self::AuthenticationPending,
-            WellsfargoAuthEnrollmentStatus::AuthenticationSuccessful => {
-                Self::AuthenticationSuccessful
-            }
-            WellsfargoAuthEnrollmentStatus::AuthenticationFailed => Self::AuthenticationFailed,
-        }
-    }
-}
-
-impl<F>
-    TryFrom<
-        types::ResponseRouterData<
-            F,
-            WellsfargoPreProcessingResponse,
-            types::PaymentsPreProcessingData,
-            types::PaymentsResponseData,
-        >,
-    > for types::RouterData<F, types::PaymentsPreProcessingData, types::PaymentsResponseData>
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: types::ResponseRouterData<
-            F,
-            WellsfargoPreProcessingResponse,
-            types::PaymentsPreProcessingData,
-            types::PaymentsResponseData,
-        >,
-    ) -> Result<Self, Self::Error> {
-        match item.response {
-            WellsfargoPreProcessingResponse::ClientAuthCheckInfo(info_response) => {
-                let status = enums::AttemptStatus::from(info_response.status);
-                let risk_info: Option<ClientRiskInformation> = None;
-                if utils::is_payment_failure(status) {
-                    let response = Err(types::ErrorResponse::foreign_from((
-                        &info_response.error_information,
-                        &risk_info,
-                        Some(status),
-                        item.http_code,
-                        info_response.id.clone(),
-                    )));
-
-                    Ok(Self {
-                        status,
-                        response,
-                        ..item.data
-                    })
-                } else {
-                    let connector_response_reference_id = Some(
-                        info_response
-                            .client_reference_information
-                            .code
-                            .unwrap_or(info_response.id.clone()),
-                    );
-
-                    let redirection_data = match (
-                        info_response
-                            .consumer_authentication_information
-                            .access_token,
-                        info_response
-                            .consumer_authentication_information
-                            .step_up_url,
-                    ) {
-                        (Some(token), Some(step_up_url)) => {
-                            Some(services::RedirectForm::CybersourceConsumerAuth {
-                                access_token: token.expose(),
-                                step_up_url,
-                            })
-                        }
-                        _ => None,
-                    };
-                    let three_ds_data = serde_json::to_value(
-                        info_response
-                            .consumer_authentication_information
-                            .validate_response,
-                    )
-                    .change_context(errors::ConnectorError::ResponseHandlingFailed)?;
-                    Ok(Self {
-                        status,
-                        response: Ok(types::PaymentsResponseData::TransactionResponse {
-                            resource_id: types::ResponseId::NoResponseId,
-                            redirection_data,
-                            mandate_reference: None,
-                            connector_metadata: Some(serde_json::json!({
-                                "three_ds_data": three_ds_data
-                            })),
-                            network_txn_id: None,
-                            connector_response_reference_id,
-                            incremental_authorization_allowed: None,
-                            charge_id: None,
-                        }),
-                        ..item.data
-                    })
-                }
-            }
-            WellsfargoPreProcessingResponse::ErrorInformation(error_response) => {
-                let detailed_error_info =
-                    error_response
-                        .error_information
-                        .details
-                        .to_owned()
-                        .map(|details| {
-                            details
-                                .iter()
-                                .map(|details| format!("{} : {}", details.field, details.reason))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        });
-
-                let reason = get_error_reason(
-                    error_response.error_information.message,
-                    detailed_error_info,
-                    None,
-                );
-                let error_message = error_response.error_information.reason.to_owned();
-                let response = Err(types::ErrorResponse {
-                    code: error_message
-                        .clone()
-                        .unwrap_or(consts::NO_ERROR_CODE.to_string()),
-                    message: error_message.unwrap_or(consts::NO_ERROR_MESSAGE.to_string()),
-                    reason,
-                    status_code: item.http_code,
-                    attempt_status: None,
-                    connector_transaction_id: Some(error_response.id.clone()),
-                });
-                Ok(Self {
-                    response,
-                    status: enums::AttemptStatus::AuthenticationFailed,
-                    ..item.data
-                })
-            }
-        }
-    }
-}
-
-impl<F>
-    TryFrom<
-        types::ResponseRouterData<
-            F,
-            WellsfargoPaymentsResponse,
-            types::CompleteAuthorizeData,
-            types::PaymentsResponseData,
-        >,
-    > for types::RouterData<F, types::CompleteAuthorizeData, types::PaymentsResponseData>
-{
-    type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(
-        item: types::ResponseRouterData<
-            F,
-            WellsfargoPaymentsResponse,
-            types::CompleteAuthorizeData,
             types::PaymentsResponseData,
         >,
     ) -> Result<Self, Self::Error> {
