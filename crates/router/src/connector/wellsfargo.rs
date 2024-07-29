@@ -1284,7 +1284,6 @@ impl api::Refund for Wellsfargo {}
 impl api::RefundExecute for Wellsfargo {}
 impl api::RefundSync for Wellsfargo {}
 
-#[allow(dead_code)]
 impl ConnectorIntegration<api::Execute, types::RefundsData, types::RefundsResponseData>
     for Wellsfargo
 {
@@ -1372,7 +1371,6 @@ impl ConnectorIntegration<api::Execute, types::RefundsData, types::RefundsRespon
     }
 }
 
-#[allow(dead_code)]
 impl ConnectorIntegration<api::RSync, types::RefundsData, types::RefundsResponseData>
     for Wellsfargo
 {
