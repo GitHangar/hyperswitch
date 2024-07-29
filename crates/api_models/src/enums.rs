@@ -134,7 +134,7 @@ pub enum Connector {
     // Tsys,
     Tsys,
     Volt,
-    // Wellsfargo,
+    Wellsfargo,
     Wise,
     Worldline,
     Worldpay,
@@ -253,7 +253,7 @@ impl Connector {
             | Self::Trustpay
             | Self::Tsys
             | Self::Volt
-            // | Self::Wellsfargo
+            | Self::Wellsfargo
             | Self::Wise
             | Self::Worldline
             | Self::Worldpay
