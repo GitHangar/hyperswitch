@@ -4866,11 +4866,10 @@ pub struct AdyenMetaData {
     merchant_account_code: String,
 }
 
-impl TryFrom<(&types::AcceptDisputeRouterData,String)> for AdyenAcceptDisputeRequest {
+impl TryFrom<(&types::AcceptDisputeRouterData, String)> for AdyenAcceptDisputeRequest {
     type Error = Error;
-        // let mut api_key = self.get_auth_header(&req.connector_auth_type)?;
-    fn try_from(data:(&types::AcceptDisputeRouterData,String)
-) -> Result<Self, Self::Error> {
+    // let mut api_key = self.get_auth_header(&req.connector_auth_type)?;
+    fn try_from(data: (&types::AcceptDisputeRouterData, String)) -> Result<Self, Self::Error> {
         // let auth_type = AdyenAuthType::try_from(&item.connector_auth_type)?;
         // let connector_merchant_id = if item.request.connector_metadata.is_some() {
         //     let adyen_metadata: AdyenMetaData =
@@ -4880,7 +4879,7 @@ impl TryFrom<(&types::AcceptDisputeRouterData,String)> for AdyenAcceptDisputeReq
         //     //
         //     "kiran".into()
         // };
-        let (item,merchant_acount_code)= data;
+        let (item, merchant_acount_code) = data;
         // let (_,k) = mca.get(0).unwrap();
         Ok(Self {
             dispute_psp_reference: item.clone().request.connector_dispute_id,
@@ -4897,15 +4896,15 @@ pub struct AdyenDefendDisputeRequest {
     defense_reason_code: String,
 }
 
-impl TryFrom<(&types::DefendDisputeRouterData,String)> for AdyenDefendDisputeRequest {
+impl TryFrom<(&types::DefendDisputeRouterData, String)> for AdyenDefendDisputeRequest {
     type Error = Error;
-    fn try_from(data: (&types::DefendDisputeRouterData,String)) -> Result<Self, Self::Error> {
+    fn try_from(data: (&types::DefendDisputeRouterData, String)) -> Result<Self, Self::Error> {
         // let auth_type = AdyenAuthType::try_from(&item.connector_auth_type)?;
-        let (item,merchant_acount_code)= data.clone();
+        let (item, merchant_acount_code) = data.clone();
         // let (_,k) = mca.get(0).unwrap();
         Ok(Self {
             dispute_psp_reference: item.request.connector_dispute_id.clone(),
-            merchant_account_code:merchant_acount_code,
+            merchant_account_code: merchant_acount_code,
             defense_reason_code: "SupplyDefenseMaterial".into(),
         })
     }
@@ -4929,16 +4928,16 @@ pub struct DefenseDocuments {
     defense_document_type_code: String,
 }
 
-impl TryFrom<(&types::SubmitEvidenceRouterData,String)> for Evidence {
+impl TryFrom<(&types::SubmitEvidenceRouterData, String)> for Evidence {
     type Error = error_stack::Report<errors::ConnectorError>;
-    fn try_from(data:(&types::SubmitEvidenceRouterData,String)) -> Result<Self, Self::Error> {
-        let (item,merchant_acount_code)= data;
-        
+    fn try_from(data: (&types::SubmitEvidenceRouterData, String)) -> Result<Self, Self::Error> {
+        let (item, merchant_acount_code) = data;
+
         let _submit_evidence_request_data = item.request.clone();
         // let (_,k) = mca.get(0).unwrap();
         Ok(Self {
-            defense_documents:None,
-            merchant_account_code:merchant_acount_code,
+            defense_documents: None,
+            merchant_account_code: merchant_acount_code,
             dispute_psp_reference: item.request.connector_dispute_id.clone(),
         })
     }

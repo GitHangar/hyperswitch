@@ -667,7 +667,7 @@ pub struct SubmitEvidenceRequestData {
     pub connector_dispute_id: String,
     pub access_activity_log: Option<String>,
     pub billing_address: Option<String>,
-    //cancellation policy 
+    //cancellation policy
     pub cancellation_policy: Option<Vec<u8>>,
     pub cancellation_policy_type: Option<String>,
     pub cancellation_policy_provider_file_id: Option<String>,

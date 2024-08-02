@@ -195,7 +195,6 @@ pub struct SubmitEvidenceRequest {
     pub uncategorized_file: Option<String>,
     /// Any additional evidence statements
     pub uncategorized_text: Option<String>,
-
     // pub cancellation_policy_type: Option<String>,
 
     // pub customer_communication_type: Option<String>,
@@ -215,7 +214,6 @@ pub struct SubmitEvidenceRequest {
     // pub recurring_transaction_agreement_type: Option<String>,
 
     // pub uncategorized_file_type: Option<String>,
-
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

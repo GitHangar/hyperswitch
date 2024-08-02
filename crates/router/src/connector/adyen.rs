@@ -8,7 +8,7 @@ use common_utils::{
 };
 use diesel_models::{enums as storage_enums, enums};
 use error_stack::{report, ResultExt};
-use masking::{ExposeInterface, Secret};
+use masking::{ExposeInterface, PeekInterface, Secret};
 use ring::hmac;
 use router_env::{instrument, tracing};
 
@@ -37,7 +37,6 @@ use crate::{
     },
     utils::{crypto, ByteSliceExt, BytesExt, OptionExt},
 };
-use masking::PeekInterface;
 const ADYEN_API_VERSION: &str = "v68";
 
 #[derive(Clone)]
@@ -52,9 +51,7 @@ impl Adyen {
         }
     }
 }
-fn get_key(
-    auth_type: &types::ConnectorAuthType,
-) -> CustomResult<String, errors::ConnectorError> {
+fn get_key(auth_type: &types::ConnectorAuthType) -> CustomResult<String, errors::ConnectorError> {
     let auth = adyen::AdyenAuthType::try_from(auth_type)
         .change_context(errors::ConnectorError::FailedToObtainAuthType)?;
     Ok(auth.api_key.peek().clone())
@@ -1980,7 +1977,8 @@ impl
     ) -> CustomResult<RequestContent, errors::ConnectorError> {
         // let key = dklaksdf()
         let merchant_acount_code = get_key(&req.connector_auth_type)?;
-        let connector_req = adyen::AdyenAcceptDisputeRequest::try_from((req,merchant_acount_code))?;
+        let connector_req =
+            adyen::AdyenAcceptDisputeRequest::try_from((req, merchant_acount_code))?;
         // let connector_req = adyen::AdyenAcceptDisputeRequest::try_from((req,self.get_auth_header(&req.connector_auth_type)?))?;
         Ok(RequestContent::Json(Box::new(connector_req)))
     }
@@ -2188,10 +2186,9 @@ impl
         req: &types::DefendDisputeRouterData,
         _connectors: &settings::Connectors,
     ) -> CustomResult<RequestContent, errors::ConnectorError> {
-        
-
         let merchant_acount_code = get_key(&req.connector_auth_type)?;
-        let connector_req = adyen::AdyenDefendDisputeRequest::try_from((req,merchant_acount_code))?;
+        let connector_req =
+            adyen::AdyenDefendDisputeRequest::try_from((req, merchant_acount_code))?;
         // let connector_req = adyen::AdyenDefendDisputeRequest::try_from((req,self.get_auth_header(&req.connector_auth_type)?))?;
         Ok(RequestContent::Json(Box::new(connector_req)))
     }
@@ -2265,7 +2262,7 @@ impl
         _connectors: &settings::Connectors,
     ) -> CustomResult<RequestContent, errors::ConnectorError> {
         let merchant_acount_code = get_key(&req.connector_auth_type)?;
-        let connector_req = adyen::Evidence::try_from((req,merchant_acount_code))?;
+        let connector_req = adyen::Evidence::try_from((req, merchant_acount_code))?;
         Ok(RequestContent::Json(Box::new(connector_req)))
     }
 
